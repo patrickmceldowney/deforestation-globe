@@ -10,7 +10,7 @@ from pathlib import Path
 import requests
 from config import AOI_BBOX, PL_API_KEY, RAW_DIR
 
-ORDERS_API = "https://api.planet.com/compute/ops/order/v2"
+ORDERS_API = "https://api.planet.com/compute/ops/orders/v2"
 DATA_API = "https://api.planet.com/data/v1/quick-search"
 
 
@@ -44,7 +44,7 @@ def search_scenes(
                 {
                     "type": "GeometryFilter",
                     "field_name": "geometry",
-                    "config": "bbox_to_geojson_polygon(bbox)",
+                    "config": bbox_to_geojson_polygon(bbox),
                 },
                 {
                     "type": "DateRangeFilter",
@@ -54,20 +54,30 @@ def search_scenes(
                         "lte": f"{year}-12-31T23:59:59Z",
                     },
                 },
-                {"type": "RangeFilter", "field": "cloud_cover", "config": {"lte": 0.1}},
+                {
+                    "type": "RangeFilter",
+                    "field_name": "cloud_cover",
+                    "config": {"lte": 0.1},
+                },
             ],
         },
     }
 
     resp = requests.post(DATA_API, json=body, auth=_auth())
+    if not resp.ok:
+        print("Planet API error:", resp.status_code, resp.text)
     resp.raise_for_status()
-    return resp.json()["Features"][:max_items]
+    return resp.json()["features"][:max_items]
 
 
 def place_order(
     item_id: str, bbox, item_type: str = "PSScene", name: str = "eco-monitor-order"
 ) -> str:
-    """Order one item, clipped to the AOI, delivered as a cloud optimized GeoTIFF. Returns the order id to poll."""
+    """Order one item, no server-side tools.
+
+    Clipping to the AOI happens locally after download rather than via the Orders API `clip` tool,
+    since that tool requires higher account permissions.
+    """
     body = {
         "name": name,
         "products": [
@@ -77,15 +87,10 @@ def place_order(
                 "product_bundle": "analytic_sr_udm2",
             }
         ],
-        "tools": [
-            {
-                "clip": {
-                    "aoi": bbox_to_geojson_polygon(bbox),
-                }
-            }
-        ],
     }
     resp = requests.post(ORDERS_API, json=body, auth=_auth())
+    if not resp.ok:
+        print("Planet API error:", resp.status_code, resp.text)
     resp.raise_for_status()
     return resp.json()["id"]
 
